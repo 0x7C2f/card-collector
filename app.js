@@ -1,137 +1,157 @@
 "use strict";
 
-require("dotenv").config();
+// Environment variables setup
+const mongoDB = process.env.MYSQL_URI;
+const sessionSecret = process.env.SESSION_SECRET;
 
-const createError = require("http-errors");
-const express = require("express");
-const mongoose = require("mongoose");
-const session = require("express-session");
-const MongoDBStore = require("connect-mongodb-session")(session);
-const flash = require("connect-flash");
-const passport = require("passport");
-const LocalStrategy = require("passport-local");
-const path = require("path");
-const cookieParser = require("cookie-parser");
-const logger = require("morgan");
-// const favicon = require("serve-favicon");
-
-const authCheckFalse = require("./helpers/authCheckFalse");
-
-// Database Connection
-const mongoDB = process.env.MONGODB_URI;
-mongoose.connect(mongoDB, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true
+// Mock database connection setup
+const mysql = require("mysql");
+const db = mysql.createConnection({
+  host: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
 });
 
-const db = mongoose.connection;
-db.on("error", console.error.bind(console, "MongoDB connection error:"));
-
-const indexRouter = require("./routes/index");
-const cardRouter = require("./routes/card");
-const searchRouter = require("./routes/search");
-
-const User = require("./models/user");
-
-const app = express();
-const sessionStore = new MongoDBStore({
-  uri: process.env.MONGODB_URI,
-  collection: "mySessions",
-  databaseName: "test"
+db.connect((err) => {
+  if (err) {
+    console.error("MySQL connection error:", err.stack);
+    return;
+  }
+  console.log("Connected to MySQL database.");
 });
-sessionStore.on(
-  "error",
-  console.error.bind(console, "MongoDB Session Storage connection error")
-);
 
-// view engine setup
-app.set("views", path.join(__dirname, "views"));
-app.set("view engine", "pug");
+// Express.js replacements for routing, error handling, etc., are removed as we're moving to a client-side solution.
 
-// app.use(favicon(path.join(__dirname, "public", "favicon.ico")));
-app.use(logger("dev"));
-app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
-app.use(express.static(path.join(__dirname, "public")));
-
-// -------------- Start Passport ------------------ //
-passport.use(
-  new LocalStrategy((username, password, done) => {
-    User.findOne({ username: username }, (err, user) => {
-      if (err) return done(err);
-
-      // Username not found
-      if (!user) return done(null, false, { message: "Incorrect username" });
-
-      if (user.comparePassword(password)) return done(null, user);
-      else return done(null, false, { message: "Incorrect password" });
-    });
-  })
-);
-
-// User object is serialized and added to req.session.passport object
-passport.serializeUser(function (user, done) {
-  done(null, user.id);
-});
-passport.deserializeUser(function (id, done) {
-  User.findById(id, function (err, user) {
-    const data = {
-      _id: user._id,
-      binders: user.binders,
-      curr: user.curr
-    };
-    done(err, data);
+// Define an example function to interact with MySQL and handle user login
+async function loginUser(username, password) {
+  // Fetch API call to backend `/login` route
+  const response = await fetch("/api/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
   });
-});
 
-app.use(
-  session({
-    name: "session",
-    cookie: {
-      maxAge: 24 * 60 * 60 * 1000,
-      sameSite: true
-    },
-    store: sessionStore,
-    secret: process.env.SESSION_SECRET,
-    name: "session-id",
-    resave: false,
-    saveUninitialized: true
-  })
-);
+  if (response.ok) {
+    const data = await response.json();
+    setSessionCookie("authToken", data.token, 1); // Save token if authenticated
+    return true;
+  } else {
+    console.log("Login failed");
+    return false;
+  }
+}
 
-app.use(flash());
+// Session management using client-side cookies
+function setSessionCookie(name, value, days) {
+  let expires = "";
+  if (days) {
+    const date = new Date();
+    date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+    expires = "; expires=" + date.toUTCString();
+  }
+  document.cookie = name + "=" + (value || "") + expires + "; path=/";
+}
 
-app.use(passport.initialize());
-app.use(passport.session());
-// -------------- End Passport --------------------- //
+function getSessionCookie(name) {
+  const nameEQ = name + "=";
+  const ca = document.cookie.split(";");
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) == " ") c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) == 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+}
 
-// Get access to currentUser variable in all views
-app.use(function (req, res, next) {
-  res.locals.currentUser = req.user;
-  next();
-});
+// Example function to fetch user data (replace MongoDB methods with SQL queries)
+function getUserById(userId, callback) {
+  const sql = `SELECT * FROM users WHERE id = ?`;
+  db.query(sql, [userId], (err, results) => {
+    if (err) {
+      console.error("Error fetching user data:", err);
+      callback(err);
+      return;
+    }
+    callback(null, results[0]);
+  });
+}
 
-app.use(express.urlencoded({ extended: false }));
+// Example of handling errors manually without http-errors
+function handleError(message, status) {
+  console.error("Error:", message);
+  document.body.innerHTML = `<h1>${status} - ${message}</h1>`;
+}
 
-app.use("/", indexRouter);
-app.use("/collection", authCheckFalse, cardRouter);
-app.use("/search", authCheckFalse, searchRouter);
+// Route simulations - typically these would be handled by a backend server
+async function handleRouteChange() {
+  const path = window.location.pathname;
+  switch (path) {
+    case "/":
+      // Load home page
+      document.body.innerHTML = "<h1>Home Page</h1>";
+      break;
+    case "/login":
+      // Display login form and handle login logic
+      document.body.innerHTML = `
+        <h1>Login Page</h1>
+        <form id="loginForm">
+          <input type="text" id="username" placeholder="Username" required>
+          <input type="password" id="password" placeholder="Password" required>
+          <button type="submit">Login</button>
+        </form>
+      `;
 
-// catch 404 and forward to error handler
-app.use(function (req, res, next) {
-  next(createError(404));
-});
+      document
+        .getElementById("loginForm")
+        .addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const username = document.getElementById("username").value;
+          const password = document.getElementById("password").value;
+          const loginSuccess = await loginUser(username, password);
+          if (loginSuccess) {
+            navigateTo("/");
+          } else {
+            console.log("Invalid login credentials.");
+          }
+        });
+      break;
+    case "/profile":
+      // Profile page, assuming the user is authenticated
+      const authToken = getSessionCookie("authToken");
+      if (!authToken) {
+        navigateTo("/login");
+        return;
+      }
+      // Fetch user data and render profile
+      getUserById(authToken, (err, user) => {
+        if (err) {
+          handleError("Unable to fetch profile", 500);
+        } else {
+          document.body.innerHTML = `<h1>Welcome, ${user.username}</h1>`;
+        }
+      });
+      break;
+    default:
+      handleError("Page not found", 404);
+  }
+}
 
-// error handler
-app.use(function (err, req, res, next) {
-  // set locals, only providing error in development
-  res.locals.message = err.message;
-  res.locals.error = req.app.get("env") === "development" ? err : {};
+// Routing without Express.js (simple client-side SPA navigation)
+function navigateTo(route) {
+  history.pushState({}, "", route);
+  handleRouteChange();
+}
 
-  // render the error page
-  res.status(err.status || 500);
-  res.render("error");
-});
+// Initialize routing
+window.addEventListener("popstate", handleRouteChange);
+handleRouteChange();
 
-module.exports = app;
+// Export for use in other modules if needed
+module.exports = {
+  loginUser,
+  getSessionCookie,
+  setSessionCookie,
+  getUserById,
+  navigateTo,
+};
